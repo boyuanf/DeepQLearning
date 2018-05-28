@@ -19,7 +19,8 @@ FLAGS = tf.app.flags.FLAGS
 
 tf.app.flags.DEFINE_string('train_dir', 'tf_train_pong',
                            """Directory where to write event logs and checkpoint. """)
-tf.app.flags.DEFINE_string('restore_file_path', '/home/ubuntu/PolicyGradientPongbykarpathy/tf_train_pong/run-20180507182051-checkpoint/pg_pong_model.ckpt',
+tf.app.flags.DEFINE_string('restore_file_path',
+                           '/home/ubuntu/PolicyGradientPongbykarpathy/tf_train_pong/run-20180507182051-checkpoint/pg_pong_model.ckpt',
                            """Path of the restore file """)
 tf.app.flags.DEFINE_integer('num_episode', 10000,
                             """number of epochs of the optimization loop.""")
@@ -34,17 +35,17 @@ tf.app.flags.DEFINE_integer('replay_memory', 400000,
 tf.app.flags.DEFINE_integer('no_op_steps', 30,
                             """Number of the steps that runs before script begin.""")
 tf.app.flags.DEFINE_float('regularizer_scale', 0.01,
-                            """L1 regularizer scale.""")
+                          """L1 regularizer scale.""")
 tf.app.flags.DEFINE_integer('batch_size', 8,
                             """every how many episodes to do a param update.""")
 tf.app.flags.DEFINE_float('learning_rate', 1e-3,
-                            """Number of batches to run.""")
+                          """Number of batches to run.""")
 tf.app.flags.DEFINE_float('init_epsilon', 1.0,
-                            """starting value of epsilon.""")
+                          """starting value of epsilon.""")
 tf.app.flags.DEFINE_float('final_epsilon', 0.1,
-                            """final value of epsilon.""")
+                          """final value of epsilon.""")
 tf.app.flags.DEFINE_float('gamma', 0.99,
-                            """discount factor for reward.""")
+                          """discount factor for reward.""")
 tf.app.flags.DEFINE_boolean('resume', False,
                             """Whether to resume from previous checkpoint.""")
 tf.app.flags.DEFINE_boolean('render', False,
@@ -63,7 +64,6 @@ def pre_processing(observe):
 
 
 def atari_model():
-
     # With the functional API we need to define the inputs.
     frames_input = layers.Input(ATARI_SHAPE, name='frames')
     actions_input = layers.Input((ACTION_SIZE,), name='action_mask')
@@ -185,7 +185,8 @@ def train():
                 train_memory_batch()
 
             score += reward
-            # If agent is dead, Set the flag back to false, but keep the history unchanged
+            # If agent is dead, set the flag back to false, but keep the history unchanged,
+            # to avoid to see the ball up in the sky
             if dead:
                 dead = False
             else:
@@ -194,15 +195,9 @@ def train():
             global_step += 1
 
 
-
-
-
-
-
-
-
 def main(argv=None):
     train()
+
 
 if __name__ == '__main__':
     tf.app.run()
