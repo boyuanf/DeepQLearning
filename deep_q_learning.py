@@ -149,9 +149,9 @@ def train_memory_batch(memory, model):
 
 
 def train():
-    input_frames = tf.placeholder("float", [None, 80, 80, 4])
-    action = K.placeholder("float", [None, ACTION_SIZE])
-    target_q = K.placeholder("float", [None])
+    input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
+    action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
+    target_q = K.placeholder(dtype='float32', shape=(None))
 
     env = gym.make('BreakoutDeterministic-v4')
 
