@@ -24,8 +24,6 @@ tf.app.flags.DEFINE_string('restore_file_path',
                            """Path of the restore file """)
 tf.app.flags.DEFINE_integer('num_episode', 10000,
                             """number of epochs of the optimization loop.""")
-tf.app.flags.DEFINE_integer('layer1_unit_num', 200,
-                            """Number of the hidden unit in layer1.""")
 tf.app.flags.DEFINE_integer('observe_step_num', 5000,
                             """Timesteps to observe before training.""")
 tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
@@ -36,8 +34,8 @@ tf.app.flags.DEFINE_integer('no_op_steps', 30,
                             """Number of the steps that runs before script begin.""")
 tf.app.flags.DEFINE_float('regularizer_scale', 0.01,
                           """L1 regularizer scale.""")
-tf.app.flags.DEFINE_integer('batch_size', 8,
-                            """every how many episodes to do a param update.""")
+tf.app.flags.DEFINE_integer('batch_size', 32,
+                            """Size of minibatch to train.""")
 tf.app.flags.DEFINE_float('learning_rate', 1e-3,
                           """Number of batches to run.""")
 tf.app.flags.DEFINE_float('init_epsilon', 1.0,
@@ -45,7 +43,7 @@ tf.app.flags.DEFINE_float('init_epsilon', 1.0,
 tf.app.flags.DEFINE_float('final_epsilon', 0.1,
                           """final value of epsilon.""")
 tf.app.flags.DEFINE_float('gamma', 0.99,
-                          """discount factor for reward.""")
+                          """decay rate of past observations.""")
 tf.app.flags.DEFINE_boolean('resume', False,
                             """Whether to resume from previous checkpoint.""")
 tf.app.flags.DEFINE_boolean('render', False,
@@ -90,7 +88,7 @@ def atari_model():
 
     model = models.Model(input=[frames_input, actions_input], output=filtered_output)
     model.summary()
-    optimizer = RMSprop(lr=0.00025, rho=0.95, epsilon=0.01)
+    optimizer = RMSprop(lr=FLAGS.learning_rate, rho=0.95, epsilon=0.01)
     model.compile(optimizer, loss='mse')
     return model
 
@@ -101,7 +99,7 @@ def get_action(history, epsilon, step, model):
     if np.random.rand() <= epsilon or step <= FLAGS.observe_step_num:
         return random.randrange(ACTION_SIZE)
     else:
-        q_value = model.predict(history)
+        q_value = model.predict(history, np.ones(ACTION_SIZE))
         return np.argmax(q_value[0])
 
 
@@ -110,9 +108,44 @@ def store_memory(memory, history, action, reward, next_history, dead):
     memory.append((history, action, reward, next_history, dead))
 
 
+def get_one_hot(targets, nb_classes):
+    return np.eye(nb_classes)[np.array(targets).reshape(-1)]
+
 # train model by radom batch
-def train_memory_batch():
-    pass
+def train_memory_batch(memory, model):
+    mini_batch = random.sample(memory, FLAGS.batch_size)
+    history = np.zeros((FLAGS.batch_size, ATARI_SHAPE[0],
+                        ATARI_SHAPE[1], ATARI_SHAPE[2]))
+    next_history = np.zeros((FLAGS.batch_size, ATARI_SHAPE[0],
+                             ATARI_SHAPE[1], ATARI_SHAPE[2]))
+    target = np.zeros((FLAGS.batch_size,))
+    action, reward, dead = [], [], []
+
+    for idx, val in enumerate(mini_batch):
+        history[idx] = np.float32(val[0] / 255.)
+        next_history[idx] = np.float32(val[3] / 255.)
+        action.append(val[1])
+        reward.append(val[2])
+        dead.append(val[4])
+
+    next_Q_values = model.predict([next_history, np.ones(ACTION_SIZE, FLAGS.batch_size)])
+
+    # like Q Learning, get maximum Q value at s'
+    # But from target model
+    for i in range(FLAGS.batch_size):
+        if dead[i]:
+            target[i] = reward[i]
+        else:
+            target[i] = reward[i] + FLAGS.gamma * np.amax(next_Q_values[i])
+
+    action_one_hot = get_one_hot(action, ACTION_SIZE)
+
+    model.fit(
+        [history, action_one_hot], action_one_hot * target[:, None],
+        nb_epoch=1, batch_size=len(history), verbose=0
+    )
+
+
 
 
 def train():
