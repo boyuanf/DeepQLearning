@@ -5,7 +5,7 @@ import tensorflow as tf
 from keras import layers
 from skimage.color import rgb2gray
 from skimage.transform import resize
-from keras import models
+from keras.models import Model
 
 from collections import deque
 from keras.optimizers import RMSprop
@@ -21,9 +21,11 @@ tf.app.flags.DEFINE_string('restore_file_path',
                            """Path of the restore file """)
 tf.app.flags.DEFINE_integer('num_episode', 10000,
                             """number of epochs of the optimization loop.""")
-tf.app.flags.DEFINE_integer('observe_step_num', 5000,
+# tf.app.flags.DEFINE_integer('observe_step_num', 5000,
+tf.app.flags.DEFINE_integer('observe_step_num', 500,
                             """Timesteps to observe before training.""")
-tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
+# tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
+tf.app.flags.DEFINE_integer('epsilon_step_num', 500,
                             """frames over which to anneal epsilon.""")
 tf.app.flags.DEFINE_integer('replay_memory', 400000,
                             """number of previous transitions to remember.""")
@@ -67,12 +69,12 @@ def atari_model():
     normalized = layers.Lambda(lambda x: x / 255.0)(frames_input)
 
     # "The first hidden layer convolves 16 8×8 filters with stride 4 with the input image and applies a rectifier nonlinearity."
-    conv_1 = layers.convolutional.Convolution2D(
-        16, 8, 8, subsample=(4, 4), activation='relu'
+    conv_1 = layers.convolutional.Conv2D(
+        16, (8, 8), strides=(4, 4), activation='relu'
     )(normalized)
     # "The second hidden layer convolves 32 4×4 filters with stride 2, again followed by a rectifier nonlinearity."
-    conv_2 = layers.convolutional.Convolution2D(
-        32, 4, 4, subsample=(2, 2), activation='relu'
+    conv_2 = layers.convolutional.Conv2D(
+        32, (4, 4), strides=(2, 2), activation='relu'
     )(conv_1)
     # Flattening the second convolutional layer.
     conv_flattened = layers.core.Flatten()(conv_2)
@@ -81,9 +83,9 @@ def atari_model():
     # "The output layer is a fully-connected linear layer with a single output for each valid action."
     output = layers.Dense(ACTION_SIZE)(hidden)
     # Finally, we multiply the output by the mask!
-    filtered_output = layers.merge([output, actions_input], mode='mul')
+    filtered_output = layers.Multiply()([output, actions_input])
 
-    model = models.Model(input=[frames_input, actions_input], output=filtered_output)
+    model = Model(inputs=[frames_input, actions_input], outputs=filtered_output)
     model.summary()
     optimizer = RMSprop(lr=FLAGS.learning_rate, rho=0.95, epsilon=0.01)
     model.compile(optimizer, loss='mse')
@@ -108,6 +110,7 @@ def store_memory(memory, history, action, reward, next_history, dead):
 def get_one_hot(targets, nb_classes):
     return np.eye(nb_classes)[np.array(targets).reshape(-1)]
 
+
 # train model by radom batch
 def train_memory_batch(memory, model):
     mini_batch = random.sample(memory, FLAGS.batch_size)
@@ -125,7 +128,8 @@ def train_memory_batch(memory, model):
         reward.append(val[2])
         dead.append(val[4])
 
-    next_Q_values = model.predict([next_history, np.ones(ACTION_SIZE, FLAGS.batch_size)])
+    actions_mask = np.ones((FLAGS.batch_size, ACTION_SIZE))
+    next_Q_values = model.predict([next_history, actions_mask])
 
     # like Q Learning, get maximum Q value at s'
     # But from target model
@@ -136,19 +140,18 @@ def train_memory_batch(memory, model):
             target[i] = reward[i] + FLAGS.gamma * np.amax(next_Q_values[i])
 
     action_one_hot = get_one_hot(action, ACTION_SIZE)
+    target_one_hot = action_one_hot * target[:, None]
 
     model.fit(
-        [history, action_one_hot], action_one_hot * target[:, None],
-        nb_epoch=1, batch_size=len(history), verbose=0
+        [history, action_one_hot], target_one_hot,
+        epochs=1, batch_size=FLAGS.batch_size, verbose=0
     )
 
 
-
-
 def train():
-    #input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
-    #action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
-    #target_q = K.placeholder(dtype='float32', shape=(None))
+    # input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
+    # action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
+    # target_q = K.placeholder(dtype='float32', shape=(None))
 
     env = gym.make('BreakoutDeterministic-v4')
 
@@ -166,7 +169,7 @@ def train():
         done = False
         dead = False
         # 1 episode = 5 lives
-        score, start_life = 0, 0, 5
+        score, start_life = 0, 5
         observe = env.reset()
 
         # this is one of DeepMind's idea.
@@ -212,7 +215,7 @@ def train():
 
             # check if the memory is ready for training
             if global_step > FLAGS.observe_step_num:
-                train_memory_batch()
+                train_memory_batch(memory, model)
 
             score += reward
             # If agent is dead, set the flag back to false, but keep the history unchanged,
@@ -222,7 +225,13 @@ def train():
             else:
                 history = next_history
 
+            print("step: ", global_step)
             global_step += 1
+
+            if done:
+                print("score: ", score)
+                print('episode {} is done!!!!'.format(episode_number))
+                episode_number += 1
 
 
 def main(argv=None):
