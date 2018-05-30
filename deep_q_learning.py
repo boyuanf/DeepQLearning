@@ -27,7 +27,7 @@ tf.app.flags.DEFINE_integer('observe_step_num', 500,
 # tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
 tf.app.flags.DEFINE_integer('epsilon_step_num', 500,
                             """frames over which to anneal epsilon.""")
-tf.app.flags.DEFINE_integer('replay_memory', 400000,
+tf.app.flags.DEFINE_integer('replay_memory', 190000,  # takes up to 10 GB to store this amount of history data
                             """number of previous transitions to remember.""")
 tf.app.flags.DEFINE_integer('no_op_steps', 30,
                             """Number of the steps that runs before script begin.""")
@@ -98,7 +98,7 @@ def get_action(history, epsilon, step, model):
     if np.random.rand() <= epsilon or step <= FLAGS.observe_step_num:
         return random.randrange(ACTION_SIZE)
     else:
-        q_value = model.predict(history, np.ones(ACTION_SIZE))
+        q_value = model.predict([history, np.ones(ACTION_SIZE).reshape(1, ACTION_SIZE)])
         return np.argmax(q_value[0])
 
 
@@ -142,10 +142,12 @@ def train_memory_batch(memory, model):
     action_one_hot = get_one_hot(action, ACTION_SIZE)
     target_one_hot = action_one_hot * target[:, None]
 
-    model.fit(
+    history = model.fit(
         [history, action_one_hot], target_one_hot,
         epochs=1, batch_size=FLAGS.batch_size, verbose=0
     )
+
+    return history.history['loss'][0]
 
 
 def train():
@@ -169,7 +171,8 @@ def train():
         done = False
         dead = False
         # 1 episode = 5 lives
-        score, start_life = 0, 5
+        step, score, start_life = 0, 0, 5
+        loss = 0.0
         observe = env.reset()
 
         # this is one of DeepMind's idea.
@@ -192,7 +195,7 @@ def train():
             # change action to real_action
             real_action = action + 1
 
-            # scale down epsilon
+            # scale down epsilon, the epsilon only begin to decrease after observe steps
             if epsilon > FLAGS.final_epsilon and global_step > FLAGS.observe_step_num:
                 epsilon -= epsilon_decay
 
@@ -210,12 +213,12 @@ def train():
             # TODO: may be we should give negative reward if miss ball (dead)
             reward = np.clip(reward, -1., 1.)
 
-            # save the statue to memory
-            store_memory(memory, history, action, reward, next_history, dead)
+            # save the statue to memory, each replay takes 2 * (84*84*4) bytes = 56448 B = 55.125 KB
+            store_memory(memory, history, action, reward, next_history, dead)  #
 
             # check if the memory is ready for training
             if global_step > FLAGS.observe_step_num:
-                train_memory_batch(memory, model)
+                loss = loss + train_memory_batch(memory, model)
 
             score += reward
             # If agent is dead, set the flag back to false, but keep the history unchanged,
@@ -225,12 +228,19 @@ def train():
             else:
                 history = next_history
 
-            print("step: ", global_step)
+            #print("step: ", global_step)
             global_step += 1
+            step += 1
 
             if done:
-                print("score: ", score)
-                print('episode {} is done!!!!'.format(episode_number))
+                if global_step <= FLAGS.observe_step_num:
+                    state = "observe"
+                elif FLAGS.observe_step_num < global_step <= FLAGS.observe_step_num + FLAGS.epsilon_step_num:
+                    state = "explore"
+                else:
+                    state = "train"
+                print('state: {}, episode: {}, score: {}, global_step: {}, avg loss: {}, step: {}, memory length: {}'
+                      .format(state, episode_number, score, global_step, loss / float(step), step, len(memory)))
                 episode_number += 1
 
 
