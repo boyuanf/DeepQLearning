@@ -8,10 +8,7 @@ from skimage.transform import resize
 from keras import models
 
 from collections import deque
-from keras.models import Sequential
 from keras.optimizers import RMSprop
-from keras.layers import Dense, Flatten
-from keras.layers.convolutional import Conv2D
 from keras import backend as K
 import time
 
@@ -149,9 +146,9 @@ def train_memory_batch(memory, model):
 
 
 def train():
-    input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
-    action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
-    target_q = K.placeholder(dtype='float32', shape=(None))
+    #input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
+    #action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
+    #target_q = K.placeholder(dtype='float32', shape=(None))
 
     env = gym.make('BreakoutDeterministic-v4')
 
