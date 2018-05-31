@@ -14,6 +14,7 @@ from datetime import datetime
 import os.path
 import time
 from keras.models import load_model
+from keras.callbacks import TensorBoard
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -46,7 +47,7 @@ tf.app.flags.DEFINE_float('final_epsilon', 0.1,
                           """final value of epsilon.""")
 tf.app.flags.DEFINE_float('gamma', 0.99,
                           """decay rate of past observations.""")
-tf.app.flags.DEFINE_boolean('resume', True,
+tf.app.flags.DEFINE_boolean('resume', False,
                             """Whether to resume from previous checkpoint.""")
 tf.app.flags.DEFINE_boolean('render', False,
                             """Whether to display the game.""")
@@ -69,7 +70,7 @@ def atari_model():
     actions_input = layers.Input((ACTION_SIZE,), name='action_mask')
 
     # Assuming that the input frames are still encoded from 0 to 255. Transforming to [0, 1].
-    normalized = layers.Lambda(lambda x: x / 255.0)(frames_input)
+    normalized = layers.Lambda(lambda x: x / 255.0, name='normalization')(frames_input)
 
     # "The first hidden layer convolves 16 8×8 filters with stride 4 with the input image and applies a rectifier nonlinearity."
     conv_1 = layers.convolutional.Conv2D(
@@ -86,7 +87,7 @@ def atari_model():
     # "The output layer is a fully-connected linear layer with a single output for each valid action."
     output = layers.Dense(ACTION_SIZE)(hidden)
     # Finally, we multiply the output by the mask!
-    filtered_output = layers.Multiply()([output, actions_input])
+    filtered_output = layers.Multiply(name='QValue')([output, actions_input])
 
     model = Model(inputs=[frames_input, actions_input], outputs=filtered_output)
     model.summary()
@@ -97,7 +98,6 @@ def atari_model():
 
 # get action from model using epsilon-greedy policy
 def get_action(history, epsilon, step, model):
-    history = np.float32(history / 255.0)  # To save space, the state saves as utf8 before feed to model
     if np.random.rand() <= epsilon or step <= FLAGS.observe_step_num:
         return random.randrange(ACTION_SIZE)
     else:
@@ -115,7 +115,7 @@ def get_one_hot(targets, nb_classes):
 
 
 # train model by radom batch
-def train_memory_batch(memory, model):
+def train_memory_batch(memory, model, log_dir):
     mini_batch = random.sample(memory, FLAGS.batch_size)
     history = np.zeros((FLAGS.batch_size, ATARI_SHAPE[0],
                         ATARI_SHAPE[1], ATARI_SHAPE[2]))
@@ -125,8 +125,8 @@ def train_memory_batch(memory, model):
     action, reward, dead = [], [], []
 
     for idx, val in enumerate(mini_batch):
-        history[idx] = np.float32(val[0] / 255.)
-        next_history[idx] = np.float32(val[3] / 255.)
+        history[idx] = val[0]
+        next_history[idx] = val[3]
         action.append(val[1])
         reward.append(val[2])
         dead.append(val[4])
@@ -145,12 +145,14 @@ def train_memory_batch(memory, model):
     action_one_hot = get_one_hot(action, ACTION_SIZE)
     target_one_hot = action_one_hot * target[:, None]
 
-    history = model.fit(
-        [history, action_one_hot], target_one_hot,
-        epochs=1, batch_size=FLAGS.batch_size, verbose=0
-    )
+    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
+                              write_graph=True, write_images=False)
 
-    return history.history['loss'][0]
+    h = model.fit(
+        [history, action_one_hot], target_one_hot, epochs=1,
+        batch_size=FLAGS.batch_size, verbose=0, callbacks=[tb_callback])
+
+    return h.history['loss'][0]
 
 
 def train():
@@ -163,7 +165,9 @@ def train():
     epsilon = FLAGS.init_epsilon
     epsilon_decay = (FLAGS.init_epsilon - FLAGS.final_epsilon) / FLAGS.epsilon_step_num
     global_step = 0
-    root_logdir = FLAGS.train_dir
+    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    log_dir = "{}/run-{}-log".format(FLAGS.train_dir, now)
+
     if FLAGS.resume:
         model = load_model(FLAGS.restore_file_path)
         # Assume when we restore the model, the epsilon has already decreased to the final value
@@ -223,7 +227,7 @@ def train():
 
             # check if the memory is ready for training
             if global_step > FLAGS.observe_step_num:
-                loss = loss + train_memory_batch(memory, model)
+                loss = loss + train_memory_batch(memory, model, log_dir)
 
             score += reward
             # If agent is dead, set the flag back to false, but keep the history unchanged,
@@ -251,7 +255,7 @@ def train():
                 #if episode_number % 1 == 0 or (episode_number + 1) == FLAGS.num_episode:  # debug
                     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
                     file_name = "breakout_model_{}.h5".format(now)
-                    model_path = os.path.join(root_logdir, file_name)
+                    model_path = os.path.join(FLAGS.train_dir, file_name)
                     model.save(model_path)
 
                 episode_number += 1
