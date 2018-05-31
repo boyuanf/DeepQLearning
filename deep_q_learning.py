@@ -10,14 +10,17 @@ from keras.models import Model
 from collections import deque
 from keras.optimizers import RMSprop
 from keras import backend as K
+from datetime import datetime
+import os.path
 import time
+from keras.models import load_model
 
 FLAGS = tf.app.flags.FLAGS
 
-tf.app.flags.DEFINE_string('train_dir', 'tf_train_pong',
+tf.app.flags.DEFINE_string('train_dir', 'tf_train_breakout',
                            """Directory where to write event logs and checkpoint. """)
 tf.app.flags.DEFINE_string('restore_file_path',
-                           '/home/ubuntu/PolicyGradientPongbykarpathy/tf_train_pong/run-20180507182051-checkpoint/pg_pong_model.ckpt',
+                           '/home/boyuanf/DeepQLearning/tf_train_breakout/breakout_model_20180531151615.h5',
                            """Path of the restore file """)
 tf.app.flags.DEFINE_integer('num_episode', 10000,
                             """number of epochs of the optimization loop.""")
@@ -43,7 +46,7 @@ tf.app.flags.DEFINE_float('final_epsilon', 0.1,
                           """final value of epsilon.""")
 tf.app.flags.DEFINE_float('gamma', 0.99,
                           """decay rate of past observations.""")
-tf.app.flags.DEFINE_boolean('resume', False,
+tf.app.flags.DEFINE_boolean('resume', True,
                             """Whether to resume from previous checkpoint.""")
 tf.app.flags.DEFINE_boolean('render', False,
                             """Whether to display the game.""")
@@ -151,20 +154,22 @@ def train_memory_batch(memory, model):
 
 
 def train():
-    # input_frames = K.placeholder(dtype='float32', shape=(None, 80, 80, 4))
-    # action = K.placeholder(dtype='float32', shape=(None, ACTION_SIZE))
-    # target_q = K.placeholder(dtype='float32', shape=(None))
-
     env = gym.make('BreakoutDeterministic-v4')
 
     # deque: Once a bounded length deque is full, when new items are added,
     # a corresponding number of items are discarded from the opposite end
     memory = deque(maxlen=FLAGS.replay_memory)
     episode_number = 0
-    model = atari_model()
     epsilon = FLAGS.init_epsilon
     epsilon_decay = (FLAGS.init_epsilon - FLAGS.final_epsilon) / FLAGS.epsilon_step_num
     global_step = 0
+    root_logdir = FLAGS.train_dir
+    if FLAGS.resume:
+        model = load_model(FLAGS.restore_file_path)
+        # Assume when we restore the model, the epsilon has already decreased to the final value
+        epsilon = FLAGS.final_epsilon
+    else:
+        model = atari_model()
 
     while episode_number < FLAGS.num_episode:
 
@@ -241,7 +246,16 @@ def train():
                     state = "train"
                 print('state: {}, episode: {}, score: {}, global_step: {}, avg loss: {}, step: {}, memory length: {}'
                       .format(state, episode_number, score, global_step, loss / float(step), step, len(memory)))
+
+                if episode_number % 100 == 0 or (episode_number + 1) == FLAGS.num_episode:
+                #if episode_number % 1 == 0 or (episode_number + 1) == FLAGS.num_episode:  # debug
+                    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+                    file_name = "breakout_model_{}.h5".format(now)
+                    model_path = os.path.join(root_logdir, file_name)
+                    model.save(model_path)
+
                 episode_number += 1
+
 
 
 def main(argv=None):
