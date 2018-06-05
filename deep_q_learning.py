@@ -23,13 +23,13 @@ tf.app.flags.DEFINE_string('train_dir', 'tf_train_breakout',
 tf.app.flags.DEFINE_string('restore_file_path',
                            '/home/boyuanf/DeepQLearning/tf_train_breakout/breakout_model_20180531151615.h5',
                            """Path of the restore file """)
-tf.app.flags.DEFINE_integer('num_episode', 10000,
+tf.app.flags.DEFINE_integer('num_episode', 100000,
                             """number of epochs of the optimization loop.""")
 # tf.app.flags.DEFINE_integer('observe_step_num', 5000,
-tf.app.flags.DEFINE_integer('observe_step_num', 500,
+tf.app.flags.DEFINE_integer('observe_step_num', 5000,
                             """Timesteps to observe before training.""")
 # tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
-tf.app.flags.DEFINE_integer('epsilon_step_num', 500,
+tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
                             """frames over which to anneal epsilon.""")
 tf.app.flags.DEFINE_integer('replay_memory', 190000,  # takes up to 10 GB to store this amount of history data
                             """number of previous transitions to remember.""")
@@ -145,12 +145,17 @@ def train_memory_batch(memory, model, log_dir):
     action_one_hot = get_one_hot(action, ACTION_SIZE)
     target_one_hot = action_one_hot * target[:, None]
 
-    tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
-                              write_graph=True, write_images=False)
+    #tb_callback = TensorBoard(log_dir=log_dir, histogram_freq=0,
+    #                          write_graph=True, write_images=False)
 
+    ''''''
     h = model.fit(
         [history, action_one_hot], target_one_hot, epochs=1,
-        batch_size=FLAGS.batch_size, verbose=0, callbacks=[tb_callback])
+        batch_size=FLAGS.batch_size, verbose=0)
+        #batch_size=FLAGS.batch_size, verbose=0, callbacks=[tb_callback])
+
+    #if h.history['loss'][0] > 10.0:
+    #    print('too large')
 
     return h.history['loss'][0]
 
@@ -167,6 +172,7 @@ def train():
     global_step = 0
     now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
     log_dir = "{}/run-{}-log".format(FLAGS.train_dir, now)
+    file_writer = tf.summary.FileWriter(log_dir, tf.get_default_graph())
 
     if FLAGS.resume:
         model = load_model(FLAGS.restore_file_path)
@@ -228,8 +234,11 @@ def train():
             # check if the memory is ready for training
             if global_step > FLAGS.observe_step_num:
                 loss = loss + train_memory_batch(memory, model, log_dir)
+                #if loss > 100.0:
+                #    print(loss)
 
             score += reward
+
             # If agent is dead, set the flag back to false, but keep the history unchanged,
             # to avoid to see the ball up in the sky
             if dead:
@@ -258,8 +267,18 @@ def train():
                     model_path = os.path.join(FLAGS.train_dir, file_name)
                     model.save(model_path)
 
+                # Add user custom data to TensorBoard
+                loss_summary = tf.Summary(
+                    value=[tf.Summary.Value(tag="loss", simple_value=loss)])
+                file_writer.add_summary(loss_summary, global_step=episode_number)
+
+                score_summary = tf.Summary(
+                    value=[tf.Summary.Value(tag="score", simple_value=score)])
+                file_writer.add_summary(score_summary, global_step=episode_number)
+
                 episode_number += 1
 
+    file_writer.close()
 
 
 def main(argv=None):
