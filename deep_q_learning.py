@@ -21,7 +21,7 @@ FLAGS = tf.app.flags.FLAGS
 tf.app.flags.DEFINE_string('train_dir', 'tf_train_breakout',
                            """Directory where to write event logs and checkpoint. """)
 tf.app.flags.DEFINE_string('restore_file_path',
-                           '/home/boyuanf/DeepQLearning/tf_train_breakout/breakout_model_20180531151615.h5',
+                           '/home/boyuanf/DeepQLearning/tf_train_breakout/breakout_model_20180606123015_24h_4221ep_first_version.h5',
                            """Path of the restore file """)
 tf.app.flags.DEFINE_integer('num_episode', 100000,
                             """number of epochs of the optimization loop.""")
@@ -281,8 +281,72 @@ def train():
     file_writer.close()
 
 
+def test():
+    env = gym.make('BreakoutDeterministic-v4')
+
+    episode_number = 0
+    epsilon = 0.001
+    global_step = FLAGS.observe_step_num+1
+    model = load_model(FLAGS.restore_file_path)
+
+    while episode_number < FLAGS.num_episode:
+
+        done = False
+        dead = False
+        # 1 episode = 5 lives
+        score, start_life = 0, 5
+        observe = env.reset()
+
+        observe, _, _, _ = env.step(1)
+        # At start of episode, there is no preceding frame
+        # So just copy initial states to make history
+        state = pre_processing(observe)
+        history = np.stack((state, state, state, state), axis=2)
+        history = np.reshape([history], (1, 84, 84, 4))
+
+        while not done:
+            env.render()
+            time.sleep(0.01)
+
+            # get action for the current history and go one step in environment
+            action = get_action(history, epsilon, global_step, model)
+            # change action to real_action
+            real_action = action + 1
+
+            observe, reward, done, info = env.step(real_action)
+            # pre-process the observation --> history
+            next_state = pre_processing(observe)
+            next_state = np.reshape([next_state], (1, 84, 84, 1))
+            next_history = np.append(next_state, history[:, :, :, :3], axis=3)
+
+            # if the agent missed ball, agent is dead --> episode is not over
+            if start_life > info['ale.lives']:
+                dead = True
+                start_life = info['ale.lives']
+
+            # TODO: may be we should give negative reward if miss ball (dead)
+            reward = np.clip(reward, -1., 1.)
+
+            score += reward
+
+            # If agent is dead, set the flag back to false, but keep the history unchanged,
+            # to avoid to see the ball up in the sky
+            if dead:
+                dead = False
+            else:
+                history = next_history
+
+            # print("step: ", global_step)
+            global_step += 1
+
+            if done:
+                episode_number += 1
+                print('episode: {}, score: {}'.format(episode_number, score))
+
+
 def main(argv=None):
-    train()
+    #train()
+    test()
 
 
 if __name__ == '__main__':
