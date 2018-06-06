@@ -269,7 +269,7 @@ def train():
 
                 # Add user custom data to TensorBoard
                 loss_summary = tf.Summary(
-                    value=[tf.Summary.Value(tag="loss", simple_value=loss)])
+                    value=[tf.Summary.Value(tag="loss", simple_value=loss / float(step))])
                 file_writer.add_summary(loss_summary, global_step=episode_number)
 
                 score_summary = tf.Summary(
