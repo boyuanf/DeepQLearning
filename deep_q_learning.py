@@ -309,7 +309,8 @@ def test():
     episode_number = 0
     epsilon = 0.001
     global_step = FLAGS.observe_step_num+1
-    model = load_model(FLAGS.restore_file_path)
+    # model = load_model(FLAGS.restore_file_path)
+    model = load_model(FLAGS.restore_file_path, custom_objects={'huber_loss': huber_loss})  # load model with customized loss func
 
     # test how to deep copy a model
     '''
