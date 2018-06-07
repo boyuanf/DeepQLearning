@@ -187,9 +187,6 @@ def train():
     epsilon = FLAGS.init_epsilon
     epsilon_decay = (FLAGS.init_epsilon - FLAGS.final_epsilon) / FLAGS.epsilon_step_num
     global_step = 0
-    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-    log_dir = "{}/run-{}-log".format(FLAGS.train_dir, now)
-    file_writer = tf.summary.FileWriter(log_dir, tf.get_default_graph())
 
     if FLAGS.resume:
         model = load_model(FLAGS.restore_file_path)
@@ -197,6 +194,10 @@ def train():
         epsilon = FLAGS.final_epsilon
     else:
         model = atari_model()
+
+    now = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    log_dir = "{}/run-{}-log".format(FLAGS.train_dir, now)
+    file_writer = tf.summary.FileWriter(log_dir, tf.get_default_graph())
 
     model_target = clone_model(model)
     model_target.set_weights(model.get_weights())
