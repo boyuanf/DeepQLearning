@@ -14,6 +14,7 @@ from datetime import datetime
 import os.path
 import time
 from keras.models import load_model
+from keras.models import clone_model
 from keras.callbacks import TensorBoard
 
 FLAGS = tf.app.flags.FLAGS
@@ -31,7 +32,9 @@ tf.app.flags.DEFINE_integer('observe_step_num', 5000,
 # tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
 tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
                             """frames over which to anneal epsilon.""")
-tf.app.flags.DEFINE_integer('replay_memory', 190000,  # takes up to 10 GB to store this amount of history data
+tf.app.flags.DEFINE_integer('refresh_target_model_num', 10000,  # update the target Q model every refresh_target_model_num
+                            """frames over which to anneal epsilon.""")
+tf.app.flags.DEFINE_integer('replay_memory', 400000,  # takes up to 20 GB to store this amount of history data
                             """number of previous transitions to remember.""")
 tf.app.flags.DEFINE_integer('no_op_steps', 30,
                             """Number of the steps that runs before script begin.""")
@@ -64,6 +67,17 @@ def pre_processing(observe):
     return processed_observe
 
 
+def huber_loss(a, b, in_keras=True):
+    error = a - b
+    quadratic_term = error*error / 2
+    linear_term = abs(error) - 1/2
+    use_linear_term = (abs(error) > 1.0)
+    if in_keras:
+        # Keras won't let us multiply floats by booleans, so we explicitly cast the booleans to floats
+        use_linear_term = K.cast(use_linear_term, 'float32')
+    return use_linear_term * linear_term + (1-use_linear_term) * quadratic_term
+
+
 def atari_model():
     # With the functional API we need to define the inputs.
     frames_input = layers.Input(ATARI_SHAPE, name='frames')
@@ -92,7 +106,9 @@ def atari_model():
     model = Model(inputs=[frames_input, actions_input], outputs=filtered_output)
     model.summary()
     optimizer = RMSprop(lr=FLAGS.learning_rate, rho=0.95, epsilon=0.01)
-    model.compile(optimizer, loss='mse')
+    # model.compile(optimizer, loss='mse')
+    # to changed model weights more slowly, uses MSE for low values and MAE(Mean Absolute Error) for large values
+    model.compile(optimizer, loss=huber_loss)
     return model
 
 
@@ -138,7 +154,8 @@ def train_memory_batch(memory, model, log_dir):
     # But from target model
     for i in range(FLAGS.batch_size):
         if dead[i]:
-            target[i] = reward[i]
+            target[i] = -1
+            # target[i] = reward[i]
         else:
             target[i] = reward[i] + FLAGS.gamma * np.amax(next_Q_values[i])
 
@@ -181,6 +198,9 @@ def train():
     else:
         model = atari_model()
 
+    model_target = clone_model(model)
+    model_target.set_weights(model.get_weights())
+
     while episode_number < FLAGS.num_episode:
 
         done = False
@@ -206,7 +226,7 @@ def train():
                 time.sleep(0.01)
 
             # get action for the current history and go one step in environment
-            action = get_action(history, epsilon, global_step, model)
+            action = get_action(history, epsilon, global_step, model_target)
             # change action to real_action
             real_action = action + 1
 
@@ -226,7 +246,7 @@ def train():
                 start_life = info['ale.lives']
 
             # TODO: may be we should give negative reward if miss ball (dead)
-            reward = np.clip(reward, -1., 1.)
+            # reward = np.clip(reward, -1., 1.)  # clip here is not correct
 
             # save the statue to memory, each replay takes 2 * (84*84*4) bytes = 56448 B = 55.125 KB
             store_memory(memory, history, action, reward, next_history, dead)  #
@@ -234,8 +254,10 @@ def train():
             # check if the memory is ready for training
             if global_step > FLAGS.observe_step_num:
                 loss = loss + train_memory_batch(memory, model, log_dir)
-                #if loss > 100.0:
+                # if loss > 100.0:
                 #    print(loss)
+                if global_step % FLAGS.refresh_target_model_num == 0:  # update the target model
+                    model_target.set_weights(model.get_weights())
 
             score += reward
 
@@ -288,6 +310,12 @@ def test():
     epsilon = 0.001
     global_step = FLAGS.observe_step_num+1
     model = load_model(FLAGS.restore_file_path)
+
+    # test how to deep copy a model
+    '''
+    model_copy = clone_model(model)    # only copy the structure, not the value of the weights
+    model_copy.set_weights(model.get_weights())
+    '''
 
     while episode_number < FLAGS.num_episode:
 
@@ -345,8 +373,8 @@ def test():
 
 
 def main(argv=None):
-    #train()
-    test()
+    train()
+    # test()
 
 
 if __name__ == '__main__':
