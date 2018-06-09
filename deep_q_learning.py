@@ -27,10 +27,10 @@ tf.app.flags.DEFINE_string('restore_file_path',
 tf.app.flags.DEFINE_integer('num_episode', 100000,
                             """number of epochs of the optimization loop.""")
 # tf.app.flags.DEFINE_integer('observe_step_num', 5000,
-tf.app.flags.DEFINE_integer('observe_step_num', 5000,
+tf.app.flags.DEFINE_integer('observe_step_num', 50000,
                             """Timesteps to observe before training.""")
 # tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
-tf.app.flags.DEFINE_integer('epsilon_step_num', 50000,
+tf.app.flags.DEFINE_integer('epsilon_step_num', 1000000,
                             """frames over which to anneal epsilon.""")
 tf.app.flags.DEFINE_integer('refresh_target_model_num', 10000,  # update the target Q model every refresh_target_model_num
                             """frames over which to anneal epsilon.""")
@@ -42,7 +42,7 @@ tf.app.flags.DEFINE_float('regularizer_scale', 0.01,
                           """L1 regularizer scale.""")
 tf.app.flags.DEFINE_integer('batch_size', 32,
                             """Size of minibatch to train.""")
-tf.app.flags.DEFINE_float('learning_rate', 1e-3,
+tf.app.flags.DEFINE_float('learning_rate', 0.00025,
                           """Number of batches to run.""")
 tf.app.flags.DEFINE_float('init_epsilon', 1.0,
                           """starting value of epsilon.""")
@@ -67,15 +67,12 @@ def pre_processing(observe):
     return processed_observe
 
 
-def huber_loss(a, b, in_keras=True):
-    error = a - b
-    quadratic_term = error*error / 2
-    linear_term = abs(error) - 1/2
-    use_linear_term = (abs(error) > 1.0)
-    if in_keras:
-        # Keras won't let us multiply floats by booleans, so we explicitly cast the booleans to floats
-        use_linear_term = K.cast(use_linear_term, 'float32')
-    return use_linear_term * linear_term + (1-use_linear_term) * quadratic_term
+def huber_loss(y, q_value):
+    error = K.abs(y - q_value)
+    quadratic_part = K.clip(error, 0.0, 1.0)
+    linear_part = error - quadratic_part
+    loss = K.mean(0.5 * K.square(quadratic_part) + linear_part)
+    return loss
 
 
 def atari_model():
@@ -375,8 +372,8 @@ def test():
 
 
 def main(argv=None):
-    train()
-    # test()
+    #train()
+    test()
 
 
 if __name__ == '__main__':
