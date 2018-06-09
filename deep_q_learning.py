@@ -372,8 +372,8 @@ def test():
 
 
 def main(argv=None):
-    #train()
-    test()
+    train()
+    # test()
 
 
 if __name__ == '__main__':
